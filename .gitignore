@@ -1,3 +1,5 @@
 *
 !.gitignore
 !oantigen.py
+!README.md
+!requirements.txt

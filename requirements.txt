@@ -1,0 +1,5 @@
+pandas
+matplotlib
+biopython
+dna_features_viewer
+bcbio-gff
