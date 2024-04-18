@@ -363,8 +363,6 @@ def main():
     operons = group_operons(operons_df)
     selected_operons = find_oantigen_operons(operons, gene_coordinates)
 
-    # gene_coordinates = find_oantigenes_data_from_gff(args.annotation)
-    # selected_operons = find_oantigene_operon_numbers(operons_df, gene_coordinates)
     selected_operons = sorted(selected_operons, key=lambda o: o.id)
 
     records = gff_records(args.annotation)
