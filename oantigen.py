@@ -8,6 +8,7 @@ python -m pip install pandas matplotlib biopython dna_features_viewer bcbio-gff
 """
 import argparse
 import io
+import math
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -224,6 +225,7 @@ def draw_region_by_coordinates(
         labels = [args.label] + labels
 
     translator = BiopythonTranslator()
+    translator.ignored_features_types = ["region"]
     translator.label_fields = labels
     graphic_record = translator.translate_record(record)
     operon = graphic_record.crop((start, end))
@@ -337,7 +339,7 @@ def main():
     records = gff_records(args.annotation)
 
     n = len(selected_operons)
-    n2 = n // 2 + 1
+    n2 = math.ceil(n / 2)
 
     axes = [None] * n
     if args.plot:
