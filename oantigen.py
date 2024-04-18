@@ -198,6 +198,7 @@ def draw_region_by_coordinates(
     start: int,
     end: int,
     record,
+    scale: int,
 ):
     """
     Function produces schematic plot of DNA region specified with coordinates;
@@ -211,10 +212,15 @@ def draw_region_by_coordinates(
     :return: None
     """
 
+    for feature in record.features:
+        q = feature.qualifiers
+        if "product" not in q and "Name" in q:
+            q["product"] = q["Name"]
+
     graphic_record = BiopythonTranslator().translate_record(record)
     operon = graphic_record.crop((start, end))
 
-    fig = plt.figure(figsize=(10, 3))
+    fig = plt.figure(figsize=(10 * scale, 3 * scale))
     ax = fig.add_subplot()
 
     for a in [draw_ax, ax]:
@@ -253,6 +259,7 @@ class InputArgs:
     coordinates: Path
     plot: bool
     out_dir: Path | None
+    scale: int
 
 
 def parse_args(args: list[str] = None):
@@ -283,6 +290,13 @@ def parse_args(args: list[str] = None):
         default=None,
         help="output images directory. by default will write to oantigene_figures_`annotation` directory",
     )
+    g.add_argument(
+        "-s",
+        "--scale",
+        type=int,
+        default=1,
+        help="output images size scale factor. Make it bigger if genes do not fit in the base size",
+    )
 
     parsed = InputArgs(**arp.parse_args(args=args).__dict__)
     if parsed.out_dir is None:
@@ -294,7 +308,9 @@ def parse_args(args: list[str] = None):
 
 
 def main():
-    args = parse_args()
+    args = parse_args(
+        "rast/rast.gff rast/list_of_operons_1758265 rast/ORFs_coordinates_1758265 -s 2".split()
+    )
 
     with args.coordinates.open() as coords_file:
         coordinates = parse_coordinates(coords_file)
@@ -329,7 +345,9 @@ def main():
 
         # Do not crop the start of the gene
         start = start - 1
-        fig = draw_region_by_coordinates(ax, operon_number, start, end, record)
+        fig = draw_region_by_coordinates(
+            ax, operon_number, start, end, record, args.scale
+        )
 
         fig.savefig(args.out_dir / f"operon_{operon_number}__{record.id}.png")
         plt.close(fig)
