@@ -483,7 +483,7 @@ def draw(
 
 def main():
     args = parse_args(
-        "rast/assembly.gff3 rast/list_of_operons_1758265 rast/ORFs_coordinates_1758265 --colors".split()
+        # "rast/assembly.gff3 rast/list_of_operons_1758265 rast/ORFs_coordinates_1758265 --colors".split()
     )
 
     with args.coordinates.open() as coords_file:
