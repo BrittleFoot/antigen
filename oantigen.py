@@ -198,7 +198,7 @@ def draw_region_by_coordinates(
     start: int,
     end: int,
     record,
-    scale: int,
+    args: "InputArgs",
 ):
     """
     Function produces schematic plot of DNA region specified with coordinates;
@@ -211,16 +211,24 @@ def draw_region_by_coordinates(
     :param gff_without_fasta: default None, if Prokka it's used to create new gff
     :return: None
     """
+    labels = [
+        "Name",
+        "name",
+        "product",
+        "source",
+        "locus_tag",
+        "note",
+    ]
 
-    for feature in record.features:
-        q = feature.qualifiers
-        if "product" not in q and "Name" in q:
-            q["product"] = q["Name"]
+    if args.label:
+        labels = [args.label] + labels
 
-    graphic_record = BiopythonTranslator().translate_record(record)
+    translator = BiopythonTranslator()
+    translator.label_fields = labels
+    graphic_record = translator.translate_record(record)
     operon = graphic_record.crop((start, end))
 
-    fig = plt.figure(figsize=(10 * scale, 3 * scale))
+    fig = plt.figure(figsize=(10 * args.scale, 3 * args.scale))
     ax = fig.add_subplot()
 
     for a in [draw_ax, ax]:
@@ -260,6 +268,7 @@ class InputArgs:
     plot: bool
     out_dir: Path | None
     scale: int
+    label: str
 
 
 def parse_args(args: list[str] = None):
@@ -282,7 +291,6 @@ def parse_args(args: list[str] = None):
         action="store_true",
         help="use matplotlib to show window with result images (not very friendly if there are more than 6-8 oantigenes)",
     )
-
     g.add_argument(
         "-o",
         "--out-dir",
@@ -297,6 +305,12 @@ def parse_args(args: list[str] = None):
         default=1,
         help="output images size scale factor. Make it bigger if genes do not fit in the base size",
     )
+    g.add_argument(
+        "-l",
+        "--label",
+        default="gene",
+        help="which label for the gene to use (from gff qualifiers)",
+    )
 
     parsed = InputArgs(**arp.parse_args(args=args).__dict__)
     if parsed.out_dir is None:
@@ -308,9 +322,7 @@ def parse_args(args: list[str] = None):
 
 
 def main():
-    args = parse_args(
-        "rast/rast.gff rast/list_of_operons_1758265 rast/ORFs_coordinates_1758265 -s 2".split()
-    )
+    args = parse_args()
 
     with args.coordinates.open() as coords_file:
         coordinates = parse_coordinates(coords_file)
@@ -346,7 +358,12 @@ def main():
         # Do not crop the start of the gene
         start = start - 1
         fig = draw_region_by_coordinates(
-            ax, operon_number, start, end, record, args.scale
+            ax,
+            operon_number,
+            start,
+            end,
+            record,
+            args,
         )
 
         fig.savefig(args.out_dir / f"operon_{operon_number}__{record.id}.png")
