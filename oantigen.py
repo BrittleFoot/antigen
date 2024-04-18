@@ -45,6 +45,30 @@ OANTIGENE_GENES = {
     "manA",
 }
 
+OANTIGENE_GENES |= {
+    "yibK",
+    "wzc",
+    "wzb",
+    "wza",
+    "galE",
+    "gne",
+    "wpaD",
+    "ugd",
+    "wpaC",
+    "wpaB",
+    "wzy",
+    "wpaA",
+    "wzx",
+    "qdtB",
+    "qdtA",
+    "rmlA",
+    "qdtf",
+    "cpxA",
+    "wec",
+    "rffG",
+    "rffH",
+}
+
 
 def parse_line(line: str) -> [int, list]:
     row = line.split("\t")
@@ -150,12 +174,45 @@ def find_oantigenes(annotation):
 
 
 @dataclass
-class Operon:
-    id: int
+class GeneGroup:
+    id: str
     contig: str
     start: int
     end: int
+    features: List
+
+
+@dataclass
+class Operon(GeneGroup):
     functions: list
+
+
+def group_features(features: List) -> Dict[int, GeneGroup]:
+    groups: List[GeneGroup] = dict()
+
+    for feature in features:
+        q = feature.qualifiers
+        record = q.get("_record_id")
+        loc = feature.location
+        if record not in groups:
+            groups[record] = GeneGroup(
+                id=record,
+                contig=record,
+                start=loc.start,
+                end=loc.end,
+                features=[feature],
+            )
+            continue
+
+        group = groups[record]
+
+        assert group.contig == record, (group, feature)
+
+        group.start = min(group.start, loc.start)
+        group.end = max(group.end, loc.end)
+        group.features.append(feature)
+
+    return groups
 
 
 def group_operons(operons_df: pd.DataFrame) -> Dict[int, Operon]:
@@ -169,6 +226,7 @@ def group_operons(operons_df: pd.DataFrame) -> Dict[int, Operon]:
                 start=feature.PosLeft,
                 end=feature.postRight,
                 functions=[feature.Function],
+                features=[feature],
             )
             continue
 
@@ -179,6 +237,7 @@ def group_operons(operons_df: pd.DataFrame) -> Dict[int, Operon]:
         op.start = min(op.start, feature.PosLeft)
         op.end = max(op.end, feature.postRight)
         op.functions.append(feature.Function)
+        op.features.append(feature)
 
     return groups
 
@@ -205,7 +264,8 @@ def find_oantigen_operons(operons: Dict[int, Operon], oantigens: list) -> List[O
 
 def draw_region_by_coordinates(
     draw_ax,
-    operon_number: int,
+    *,
+    title: str,
     start: int,
     end: int,
     record,
@@ -246,7 +306,7 @@ def draw_region_by_coordinates(
         if a is None:
             continue
 
-        a.set_title(f"Operon #{operon_number}; Contig: {record.id}")
+        a.set_title(title)
         operon.plot(ax=a, elevate_outline_annotations=False)
 
     return fig
@@ -276,10 +336,14 @@ class InputArgs:
     annotation: Path
     operons: Path
     coordinates: Path
-    plot: bool
+    #
     out_dir: Path | None
+    #
+    plot: bool
     scale: int
     label: str
+    no_operons: bool
+    colors: bool
 
 
 def parse_args(args: list[str] = None):
@@ -294,6 +358,9 @@ def parse_args(args: list[str] = None):
     )
     g.add_argument("operons", type=Path, help="list_of_operons file")
     g.add_argument("coordinates", type=Path, help="ORFs_coordinates file")
+    g.add_argument(
+        "--no-operons", action="store_true", help="ignore operon restrictions"
+    )
 
     g = arp.add_argument_group("Output options")
     g.add_argument(
@@ -322,11 +389,22 @@ def parse_args(args: list[str] = None):
         default="gene",
         help="which label for the gene to use (from gff qualifiers)",
     )
+    g.add_argument(
+        "--colors",
+        action="store_true",
+        help="draw oantigen genes with outstanding colors",
+    )
 
     parsed = InputArgs(**arp.parse_args(args=args).__dict__)
     if parsed.out_dir is None:
-        out_name = "oantigene_figures_" + parsed.annotation.name
+        prefix = "oantigene_figures_"
+        if parsed.no_operons:
+            prefix = prefix + "operonles_"
+
+        out_name = prefix + parsed.annotation.name
         parsed.out_dir = parsed.annotation.parent / out_name
+
+    parsed.colors = parsed.colors and parsed.no_operons
 
     parsed.out_dir.mkdir(exist_ok=True, parents=True)
     return parsed
@@ -348,9 +426,64 @@ def setup_axes(n, real):
     return axes
 
 
+def print_features(features):
+    for feature in features:
+        q = feature.qualifiers
+        loc = feature.location
+        print(
+            q["_record_id"],
+            loc.start,
+            loc.end,
+            loc.strand,
+            q.get("gene")[0],
+            q.get("Name")[0],
+            sep="\t",
+        )
+
+
+def colorize(records, items: List[GeneGroup]):
+    ids = set()
+    for item in items:
+        for feature in item.features:
+            ids.add(feature.id)
+
+    for record in records.values():
+        for feature in record.features:
+            feature.qualifiers["color"] = "#dc6678"
+
+
+def draw(
+    items: List[GeneGroup],
+    *,
+    args: InputArgs,
+):
+    records = gff_records(args.annotation)
+    axes = setup_axes(len(items), args.plot)
+
+    if args.colors:
+        colorize(records, items)
+
+    for ax, operon in zip(axes, items):
+        contig_key = gff_key(operon.contig)
+        record = records[contig_key]
+
+        fig = draw_region_by_coordinates(
+            ax,
+            title=f"Operon #{operon.id}; Contig: {record.id}",
+            # Do not crop the start of the gene
+            start=operon.start - 1,
+            end=operon.end,
+            record=record,
+            args=args,
+        )
+
+        fig.savefig(args.out_dir / f"operon_{operon.id}__{record.id}.png")
+        plt.close(fig)
+
+
 def main():
     args = parse_args(
-        # "rast/assembly.gff3 rast/list_of_operons_1758265 rast/ORFs_coordinates_1758265".split()
+        "rast/assembly.gff3 rast/list_of_operons_1758265 rast/ORFs_coordinates_1758265 --colors".split()
     )
 
     with args.coordinates.open() as coords_file:
@@ -360,30 +493,18 @@ def main():
         operons_df = parse_list_of_operons(operons_file, coordinates)
 
     gene_coordinates = find_oantigenes(args.annotation)
-    operons = group_operons(operons_df)
-    selected_operons = find_oantigen_operons(operons, gene_coordinates)
+    print_features(gene_coordinates)
 
-    selected_operons = sorted(selected_operons, key=lambda o: o.id)
+    if args.no_operons:
+        gene_groups = group_features(gene_coordinates).values()
+        draw(gene_groups, args=args)
 
-    records = gff_records(args.annotation)
+    else:
+        operons = group_operons(operons_df)
+        selected_operons = find_oantigen_operons(operons, gene_coordinates)
+        selected_operons = sorted(selected_operons, key=lambda o: o.id)
 
-    axes = setup_axes(len(selected_operons), args.plot)
-    for ax, operon in zip(axes, selected_operons):
-        contig_key = gff_key(operon.contig)
-        record = records[contig_key]
-
-        fig = draw_region_by_coordinates(
-            ax,
-            operon.id,
-            # Do not crop the start of the gene
-            operon.start - 1,
-            operon.end,
-            record,
-            args,
-        )
-
-        fig.savefig(args.out_dir / f"operon_{operon.id}__{record.id}.png")
-        plt.close(fig)
+        draw(selected_operons, args=args)
 
     if args.plot:
         plt.show()
