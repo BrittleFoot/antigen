@@ -12,13 +12,14 @@ import math
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Dict, List
 
 import pandas as pd
 from BCBio import GFF
 from dna_features_viewer import BiopythonTranslator
 from matplotlib import pyplot as plt
 
-OANTIGENE_GENES = [
+OANTIGENE_GENES = {
     "wzz",
     "wzx",
     "wzy",
@@ -42,7 +43,7 @@ OANTIGENE_GENES = [
     "rmlC",
     "rmlD",
     "manA",
-]
+}
 
 
 def parse_line(line: str) -> [int, list]:
@@ -60,15 +61,9 @@ ID_PATTERN = re.compile(r"ID=(\w+);")
 
 def parse_coordinates(coords_file: io.FileIO) -> pd.DataFrame:
     data = {}
-    for line in coords_file:
-        line = line.strip()
-        row = line.split("\t")
-
-        contig_name = row[0]
-        quals = row[8]
-
-        id = ID_PATTERN.search(quals)
-        data[id.group(1)] = contig_name
+    for record in GFF.parse(coords_file):
+        for feature in record.features:
+            data[feature.qualifiers["ID"][0]] = record.id
 
     return data
 
@@ -120,77 +115,92 @@ def parse_list_of_operons(
     return frame
 
 
-def find_oantigenes_data_from_gff(gff_file):
-    """
-    Function gets data (start and end coordinates, strand (+,-)) on candidate O-antigen operon genes from GFF annotation
-    using list of O-antigen operon genes defined from literature
-    :param gff_file: path to GFF annotation file (PGAP or PROKKA)
-    :param O_ag_gene_list: list of O-antigen operon genes defined from literature
-    :param prokka: True or False; specifies type of GFF annotation
-    :return: 2-D array with 4 columns: start coordinate, end coordinate, strand, gene name
-    """
-    with open(gff_file) as gff_with_fasta:
-        i = 0
-        start_fasta = 0
-        for i, line in enumerate(gff_with_fasta):
-            if line.startswith("##FASTA"):
-                start_fasta = i
-        end_fasta = i
+def find_oantigenes(annotation):
+    genes = []
+    for record in GFF.parse(annotation):
+        for feature in record.features:
+            q = feature.qualifiers
+            gene_names = (q.get("gene", []) + q.get("Gene", [])) or q.get("Name", [])
+            if not gene_names:
+                continue
 
-    if start_fasta == 0:
-        start_fasta = end_fasta
+            if len(gene_names) > 1:
+                raise NotImplementedError(
+                    f"More than one gene name: {gene_names} in {feature}"
+                )
 
-    gff = pd.read_csv(
-        gff_file,
-        engine="python",
-        sep="\t",
-        comment="#",
-        skipfooter=end_fasta - start_fasta + 1,
-    )
+            gene = gene_names[0]
 
-    gff.columns = [i for i in range(1, len(gff.columns) + 1)]
-    gff_gene = gff.loc[gff[9].str.contains("Name=")].copy()
-    gff_gene.loc[:, 10] = gff_gene[9].apply(lambda x: x.split("Name=")[1].split(";")[0])
+            # replace to just flat `in` if substring is not needed,
+            # and the whole gene in 'gene' qualifier
+            good_gene = False
+            for oantigene_name in OANTIGENE_GENES:
+                if oantigene_name.find(gene) != -1:
+                    good_gene = True
+                    break
 
-    return (
-        gff_gene[gff_gene[9].apply(lambda x: any([k in x for k in OANTIGENE_GENES]))]
-        .loc[:, [4, 5, 7, 10]]
-        .to_numpy()
-    )
+            if not good_gene:
+                continue
+
+            q["_record_id"] = record.id
+
+            genes.append(feature)
+
+    return genes
 
 
-def find_oantigene_operon_numbers(operons_df, coord_genes_array):
-    """
-    Function gets candidate O-ag operons (as operon numbers) from Operon-mapper output
-    using coordinates array of O-ag genes obtained from GFF annotation
-    :param operons_df: pandas DataFrame of Operon-mapper output with the description of predicted operons
-    :param coord_genes_array: 2-D array with the following columns: start coordinate, end coordinate, strand, gene name.
-    :return: numpy array: operon numbers of candidate O-antigen operons
-    """
-    return operons_df.loc[
-        operons_df.PosLeft.isin(coord_genes_array[:, 0])
-        & operons_df.postRight.isin(coord_genes_array[:, 1])
-        | operons_df.Function.str.contains("O-antigen")
-    ]["Operon"].unique()
+@dataclass
+class Operon:
+    id: int
+    contig: str
+    start: int
+    end: int
+    functions: list
 
 
-def get_operon_boundaries(operons_df, operon_number):
-    """
-    Function gets boundary coordinates of the DNA region specified as the list of operons.
-    :param operons_df: pandas DataFrame of Operon-mapper output with the description of predicted operons
-    :param operon_numbers_list: list of operon numbers (int) predicted by Operon-mapper
-    :return: tuple consisting of 2 integers:
-    (<start_coordinate_of_the_first_gene_from_the_first_operon>, <end_coordinate_of_the_last_gene_from_the_last_operon>)
-    """
-    operon_boundaries = operons_df[operons_df.Operon.eq(operon_number)]
-    operon_boundaries = operon_boundaries.loc[:, ["PosLeft", "postRight", "Contig"]]
-    contig = operon_boundaries.Contig.unique()[0]
+def group_operons(operons_df: pd.DataFrame) -> Dict[int, Operon]:
+    groups = dict()
 
-    s, e = sorted(
-        map(int, [operon_boundaries.PosLeft.min(), operon_boundaries.postRight.max()])
-    )
+    for i, feature in operons_df.iterrows():
+        if feature.Operon not in groups:
+            groups[feature.Operon] = Operon(
+                id=feature.Operon,
+                contig=feature.Contig,
+                start=feature.PosLeft,
+                end=feature.postRight,
+                functions=[feature.Function],
+            )
+            continue
 
-    return s, e, contig
+        op = groups[feature.Operon]
+
+        assert op.contig == feature.Contig, (op, feature)
+
+        op.start = min(op.start, feature.PosLeft)
+        op.end = max(op.end, feature.postRight)
+        op.functions.append(feature.Function)
+
+    return groups
+
+
+def find_oantigen_operons(operons: Dict[int, Operon], oantigens: list) -> List[Operon]:
+    ids = []
+    by_name = []
+    for i, operon in operons.items():
+        for oantigen in oantigens:
+            q = oantigen.qualifiers
+            if gff_key(operon.contig) != gff_key(q["_record_id"]):
+                continue
+
+            loc = oantigen.location
+            if operon.start <= loc.start and loc.end <= operon.end:
+                ids.append(operon)
+
+        for func in operon.functions:
+            if func.find("O-antigen") != -1:
+                by_name.append(operon)
+
+    return ids + by_name
 
 
 def draw_region_by_coordinates(
@@ -205,12 +215,6 @@ def draw_region_by_coordinates(
     Function produces schematic plot of DNA region specified with coordinates;
     visualizes only gene feature types
     and labels them by gene or its product.
-    :param gff_file: path to GFF annotation file
-    :param start_: start coordinate of the desired region
-    :param end_: end coordinate of the desired region
-    :param prokka: True or False; specifies type of GFF annotation
-    :param gff_without_fasta: default None, if Prokka it's used to create new gff
-    :return: None
     """
     labels = [
         "Name",
@@ -228,9 +232,14 @@ def draw_region_by_coordinates(
     translator.ignored_features_types = ["region"]
     translator.label_fields = labels
     graphic_record = translator.translate_record(record)
-    operon = graphic_record.crop((start, end))
 
     fig = plt.figure(figsize=(10 * args.scale, 3 * args.scale))
+    try:
+        operon = graphic_record.crop((start, end))
+    except Exception as e:
+        print(f"Error on {start, end}, {e}")
+        return fig
+
     ax = fig.add_subplot()
 
     for a in [draw_ax, ax]:
@@ -323,26 +332,11 @@ def parse_args(args: list[str] = None):
     return parsed
 
 
-def main():
-    args = parse_args()
-
-    with args.coordinates.open() as coords_file:
-        coordinates = parse_coordinates(coords_file)
-
-    with args.operons.open() as operons_file:
-        operons_df = parse_list_of_operons(operons_file, coordinates)
-
-    gene_coordinates = find_oantigenes_data_from_gff(args.annotation)
-    selected_operons = find_oantigene_operon_numbers(operons_df, gene_coordinates)
-    selected_operons = sorted(selected_operons)
-
-    records = gff_records(args.annotation)
-
-    n = len(selected_operons)
+def setup_axes(n, real):
     n2 = math.ceil(n / 2)
 
     axes = [None] * n
-    if args.plot:
+    if real:
         _, axes = plt.subplots(
             nrows=n2,
             ncols=2,
@@ -351,24 +345,46 @@ def main():
         )
         axes = axes.flatten()
 
-    for ax, operon_number in zip(axes, selected_operons):
-        start, end, contig = get_operon_boundaries(operons_df, operon_number)
+    return axes
 
-        contig_key = gff_key(contig)
+
+def main():
+    args = parse_args(
+        # "rast/assembly.gff3 rast/list_of_operons_1758265 rast/ORFs_coordinates_1758265".split()
+    )
+
+    with args.coordinates.open() as coords_file:
+        coordinates = parse_coordinates(coords_file)
+
+    with args.operons.open() as operons_file:
+        operons_df = parse_list_of_operons(operons_file, coordinates)
+
+    gene_coordinates = find_oantigenes(args.annotation)
+    operons = group_operons(operons_df)
+    selected_operons = find_oantigen_operons(operons, gene_coordinates)
+
+    # gene_coordinates = find_oantigenes_data_from_gff(args.annotation)
+    # selected_operons = find_oantigene_operon_numbers(operons_df, gene_coordinates)
+    selected_operons = sorted(selected_operons, key=lambda o: o.id)
+
+    records = gff_records(args.annotation)
+
+    axes = setup_axes(len(selected_operons), args.plot)
+    for ax, operon in zip(axes, selected_operons):
+        contig_key = gff_key(operon.contig)
         record = records[contig_key]
 
-        # Do not crop the start of the gene
-        start = start - 1
         fig = draw_region_by_coordinates(
             ax,
-            operon_number,
-            start,
-            end,
+            operon.id,
+            # Do not crop the start of the gene
+            operon.start - 1,
+            operon.end,
             record,
             args,
         )
 
-        fig.savefig(args.out_dir / f"operon_{operon_number}__{record.id}.png")
+        fig.savefig(args.out_dir / f"operon_{operon.id}__{record.id}.png")
         plt.close(fig)
 
     if args.plot:
