@@ -1,10 +1,6 @@
 #!python
 """
-requirements
-
-```bash
-python -m pip install pandas matplotlib biopython dna_features_viewer bcbio-gff
-```
+DEPRECATED: use merge-operons.py + draw-operons.py instead
 """
 import argparse
 import io
