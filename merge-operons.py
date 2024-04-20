@@ -241,9 +241,15 @@ def main(args: InputArgs):
 
 
 def parse_args(args: list[str] = None):
-    arp = argparse.ArgumentParser("merge-operons", usage="combines annotation and the output of the operon finder into one gff where")
+    arp = argparse.ArgumentParser(
+        "merge-operons",
+        description=(
+            "combines annotation and the output of the operon finder into one gff"
+            + "where each feature have an operon number and oantigen mark qualifiers"
+        ),
+    )
 
-    g = arp.add_argument_group("Annotation file")
+    g = arp.add_argument_group("annotation file")
     g.add_argument("annotation", type=Path, help="gff annotation file path")
 
     g = arp.add_argument_group(
@@ -253,14 +259,14 @@ def parse_args(args: list[str] = None):
     g.add_argument("operons", type=Path, help="list_of_operons file path")
     g.add_argument("coordinates", type=Path, help="ORFs_coordinates file path")
 
-    g = arp.add_argument_group("Output options")
+    g = arp.add_argument_group("output options")
     g.add_argument("-o", "--output", type=Path, help="output file path")
 
     ###########################################################
 
     parsed = InputArgs(**arp.parse_args(args=args).__dict__)
     if parsed.output is None:
-        prefix = "operons_"
+        prefix = "operons-"
 
         out_name = prefix + parsed.annotation.name
         parsed.output = parsed.annotation.parent / out_name
@@ -269,8 +275,4 @@ def parse_args(args: list[str] = None):
 
 
 if __name__ == "__main__":
-    main(
-        parse_args(
-            "data/scaffolds.gff3 data/3355873/list_of_operons_3355873 data/3355873/ORFs_coordinates_3355873".split()
-        )
-    )
+    main(parse_args())
