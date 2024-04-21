@@ -172,7 +172,7 @@ def parse_args(args: list[str] = None):
         prefix = "pictures-"
         out_name = prefix + parsed.annotation.name
         parsed.output = parsed.annotation.parent / out_name
-        parsed.output.mkdir(exist_ok=True, parents=True)
+    parsed.output.mkdir(exist_ok=True, parents=True)
 
     return parsed
 
