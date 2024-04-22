@@ -166,7 +166,7 @@ def parse_args(args: list[str] = None):
     g.add_argument(
         "--no-colors",
         action="store_true",
-        help="draw oantigen genes with outstanding colors",
+        help="do not highlight oantigen genes",
     )
     g.add_argument(
         "--size",
