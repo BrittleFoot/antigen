@@ -174,7 +174,7 @@ def parse_args(args: list[str] = None):
         type=int,
         default=[],
         metavar=("WIDTH", "HEIGHT"),
-        help="Size of the figures in inches (example `... --size 10 5`)",
+        help="size of the figures in inches (example `... --size 10 5`)",
     )
 
     ###########################################################
