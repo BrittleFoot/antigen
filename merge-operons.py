@@ -85,6 +85,9 @@ K_ANTIGEN_GENES = {
     "cpsB",
     "cpsC",
     "cpsD",
+    "wza",
+    "wzb",
+    "wzc",
 }
 
 ANTIGEN_GENES = {
