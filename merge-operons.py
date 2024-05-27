@@ -104,7 +104,7 @@ AntigenType = Literal["O", "H", "K"]
 
 @dataclass
 class InputArgs:
-    type: AntigenType
+    type: set[AntigenType]
     #
     annotation: Path
     operons: Path
@@ -206,17 +206,20 @@ def is_antigen(feature, antigen_type: AntigenType):
     return False
 
 
-def mark_antigenes(records, antigen_type: AntigenType):
+def mark_antigenes(records, antigen_types: set[AntigenType]):
     for record in records:
-        for feature in record.features:
-            antigen = is_antigen(feature, antigen_type=antigen_type)
-            feature.qualifiers["antigen"] = [antigen]
-            if antigen:
-                feature.qualifiers["antigen_type"] = [antigen_type]
+        for antigen_type in antigen_types:
+            for feature in record.features:
+                antigen = is_antigen(feature, antigen_type=antigen_type)
+                feature.qualifiers["antigen"] = [antigen]
+                if antigen:
+                    feature.qualifiers["antigen_type"] = [
+                        antigen_type
+                    ] + feature.qualifiers.get("antigen_type", [])
 
-            if antigen:
-                print(record.id, end="\t")
-                print_feature(feature)
+                if antigen:
+                    print(f"{antigen_type}-antigen", record.id, end="\t", sep="\t")
+                    print_feature(feature)
 
         yield record
 
@@ -268,7 +271,7 @@ def match_records(annotation, ofinder):
 
 
 def main(args: InputArgs):
-    print(f"Looking for {args.type}-antigens in the annotation")
+    print(f"Looking for {','.join(args.type)}-antigens in the annotation")
     with args.operons.open() as operonsh:
         operon_ids = {o.id_gene: o.operon for o in parse_list_of_operons(operonsh)}
 
@@ -295,7 +298,7 @@ def parse_args(args: list[str] = None):
         "-t",
         "--type",
         choices=["O", "H", "K"],
-        required=True,
+        action="append",
         help="Antigen type",
     )
 
@@ -320,6 +323,8 @@ def parse_args(args: list[str] = None):
 
         out_name = prefix + parsed.annotation.name
         parsed.output = parsed.annotation.parent / out_name
+
+    parsed.type = set(parsed.type)
 
     return parsed
 
