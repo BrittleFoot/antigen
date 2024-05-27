@@ -2,6 +2,7 @@
 """
 DEPRECATED: use merge-operons.py + draw-operons.py instead
 """
+
 import argparse
 import io
 import math
@@ -478,6 +479,7 @@ def draw(
 
 
 def main():
+    print("DEPRECATED: use merge-operons.py + draw-operons.py instead")
     args = parse_args(
         # "rast/assembly.gff3 rast/list_of_operons_1758265 rast/ORFs_coordinates_1758265 --colors".split()
     )

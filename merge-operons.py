@@ -5,11 +5,11 @@ import sys
 from dataclasses import dataclass
 from functools import wraps
 from pathlib import Path
-from typing import Dict, NamedTuple
+from typing import Dict, Literal, NamedTuple
 
 from BCBio import GFF
 
-OANTIGENE_GENES = {
+O_ANTIGEN_GENES = {
     "wzz",
     "wzx",
     "wzy",
@@ -33,9 +33,7 @@ OANTIGENE_GENES = {
     "rmlC",
     "rmlD",
     "manA",
-}
-
-OANTIGENE_GENES |= {
+    ######
     "yibK",
     "wzc",
     "wzb",
@@ -59,14 +57,55 @@ OANTIGENE_GENES |= {
     "rffH",
 }
 
+H_ANTIGEN_GENES = {
+    "fliC",
+    "flkA",
+    "fllA",
+    "flmA",
+    "flgA",
+    "flgB",
+    "flgC",
+    "flgD",
+    "flgE",
+    "flgF",
+    "flhA",
+    "flhB",
+    "fliA",
+    "fliB",
+    "fliD",
+    "fliE",
+}
+
+K_ANTIGEN_GENES = {
+    "kpsM",
+    "kpsT",
+    "kpsD",
+    "kpsE",
+    "cpsA",
+    "cpsB",
+    "cpsC",
+    "cpsD",
+}
+
+ANTIGEN_GENES = {
+    "O": O_ANTIGEN_GENES,
+    "H": H_ANTIGEN_GENES,
+    "K": K_ANTIGEN_GENES,
+}
+
 
 @wraps(print)
 def err(*args, **kwargs):
     print(*args, file=sys.stderr, **kwargs)
 
 
+AntigenType = Literal["O", "H", "K"]
+
+
 @dataclass
 class InputArgs:
+    type: AntigenType
+    #
     annotation: Path
     operons: Path
     coordinates: Path
@@ -146,7 +185,7 @@ def parse_list_of_operons(list_file: io.FileIO):
         yield OperonGene(current_operon, id_gene)
 
 
-def is_oantigen(feature):
+def is_antigen(feature, antigen_type: AntigenType):
     q = feature.qualifiers
     gene_names = (q.get("gene", []) + q.get("Gene", [])) or q.get("Name", [])
 
@@ -160,20 +199,22 @@ def is_oantigen(feature):
 
     # replace to just flat `in` if substring is not needed,
     # and the whole gene in 'gene' qualifier
-    for oantigene_name in OANTIGENE_GENES:
-        if oantigene_name.find(gene) != -1:
+    for antigene_name in ANTIGEN_GENES[antigen_type]:
+        if antigene_name.find(gene) != -1:
             return True
 
     return False
 
 
-def mark_oantigenes(records):
+def mark_antigenes(records, antigen_type: AntigenType):
     for record in records:
         for feature in record.features:
-            og = is_oantigen(feature)
-            feature.qualifiers["oantigen"] = [og]
+            antigen = is_antigen(feature, antigen_type=antigen_type)
+            feature.qualifiers["antigen"] = [antigen]
+            if antigen:
+                feature.qualifiers["antigen_type"] = [antigen_type]
 
-            if og:
+            if antigen:
                 print(record.id, end="\t")
                 print_feature(feature)
 
@@ -227,11 +268,12 @@ def match_records(annotation, ofinder):
 
 
 def main(args: InputArgs):
+    print(f"Looking for {args.type}-antigens in the annotation")
     with args.operons.open() as operonsh:
         operon_ids = {o.id_gene: o.operon for o in parse_list_of_operons(operonsh)}
 
     with args.annotation.open() as inputh, args.coordinates.open() as coordsh:
-        gff = mark_oantigenes(parse_gff(inputh))
+        gff = mark_antigenes(parse_gff(inputh), args.type)
         operons = mark_operonfinder_operons(parse_gff(coordsh), operon_ids)
 
         matched = match_gffs(gff, operons)
@@ -245,8 +287,16 @@ def parse_args(args: list[str] = None):
         "merge-operons",
         description=(
             "combines annotation and the output of the operon finder into one gff"
-            + "where each feature have an operon number and oantigen mark qualifiers"
+            + "where each feature have an operon number and antigen mark qualifiers"
         ),
+    )
+
+    arp.add_argument(
+        "-t",
+        "--type",
+        choices=["O", "H", "K"],
+        required=True,
+        help="Antigen type",
     )
 
     g = arp.add_argument_group("annotation file")
