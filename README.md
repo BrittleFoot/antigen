@@ -1,4 +1,14 @@
-# Oantigen
+# Antigen
+
+This repository contains scripts for the analysis of the antigenic structure of bacteria.
+
+You can add add information about operons to the gff file with the help of the `merge-operons.py` script. The script will add the following qualifiers to the gff file:
+
+- operon: int - operon index
+- antigen: [True | False] - whether the gene is an antigen
+- antigen_type: [O | H | K] - antigen type
+
+Then `draw-operons.py` script will draw operons that contain antigen genes with the help of the generated gff file.
 
 
 ## Installation
