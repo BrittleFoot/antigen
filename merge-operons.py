@@ -211,10 +211,12 @@ def is_antigen(feature, antigen_type: AntigenType):
 
 def mark_antigenes(records, antigen_types: set[AntigenType]):
     for record in records:
-        for antigen_type in antigen_types:
-            for feature in record.features:
+        for feature in record.features:
+            for antigen_type in antigen_types:
+                #
                 antigen = is_antigen(feature, antigen_type=antigen_type)
-                feature.qualifiers["antigen"] = [antigen]
+                prev = feature.qualifiers.get("antigen", [False])[0]
+                feature.qualifiers["antigen"] = [antigen or prev]
                 if antigen:
                     feature.qualifiers["antigen_type"] = [
                         antigen_type
